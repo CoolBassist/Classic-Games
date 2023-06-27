@@ -6,16 +6,9 @@
 #include <time.h>
 #include "tigr.h"
 
-/**** defines ****/
-#define GREEN_FG "\e[0;32m"
-#define RED_BG   "\e[0;91m"
-#define RESET    "\e[0m"
-
-#define changeStyle(x) printf(x)
-
 /*** Enums ***/
 enum difficulty{
-    EASY = 1,
+    EASY = 21,
     MEDIUM = 32,
     HARD = 43,
     VERYHARD = 64
@@ -26,18 +19,14 @@ void drawBoard();
 
 /*** Structs ***/
 typedef struct {
-    int pencilMarks[9];
     int value;
-    bool filledIn;
     bool isEditable;
 } cell;
 
 /**** Variables ****/
 cell board[9][9];
 int alreadyUsed[9][9][9];
-bool pencil = false;
 char message[100];
-int move[2];
 Tigr *screen;
 int cur_x;
 int cur_y;
@@ -130,7 +119,6 @@ void generateFullBoard(){
             }
 
             board[y][x].isEditable = true;
-            board[y][x].filledIn = true;
 
             int tries[9];
 
@@ -176,58 +164,6 @@ void generateFullBoard(){
     }
 }
 
-int solveBoard(){
-    int* freeSquares[81];
-    int numberOfFreeSquares = 0;
-
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            if(board[y][x].value == 0){
-                freeSquares[numberOfFreeSquares] = &board[y][x].value;
-                numberOfFreeSquares++;
-            }
-        }
-    }
-
-    int* tried = (int*) malloc(numberOfFreeSquares*9*sizeof(int));
-    int solutions = 0;
-
-    memset(&tried, 0, numberOfFreeSquares*9*sizeof(int));
-
-    do{
-        for(int i = 0; i < numberOfFreeSquares; i++){
-            for(int j = 1; j <= 9; j++){
-
-                bool repeat = true;
-
-                for(int k = 0; k < 9; k++){
-                    for(int l = 0; l < 9; l++){
-                        if(tried[k*9 + l] == 0)  repeat =  false;
-                    }
-                }
-
-                if(repeat) return solutions;
-
-
-
-                if(tried[i*9 + (j-1)] == 0){
-                    *freeSquares[i] = j;
-                }else{
-                    continue;
-                }
-                tried[i*9 + (j-1)] = 1;
-                if(!verifyFullBoard){
-                    continue;
-                }
-            }
-        }
-
-        solutions++;
-    }while(true);
-
-    return solutions;
-}
-
 void removeSquares(int toRemove){
     int randX;
     int randY;
@@ -238,10 +174,7 @@ void removeSquares(int toRemove){
             randY = (rand()%9);
         }while(board[randY][randX].value == 0);
 
-        int oldValue = board[randY][randX].value;
-
         board[randY][randX].value = 0;
-
         --toRemove;
     }
 
@@ -253,8 +186,6 @@ void removeSquares(int toRemove){
         }
     }
 }
-
-
 
 /**** output ****/
 void drawBoard(){
@@ -362,7 +293,7 @@ void drawButton(char* text, int x, int y){
 void drawUI(){
     char timeCount[30];
 
-    sprintf(timeCount, "%d SECONDS", time(NULL)-timeStart);
+    sprintf(timeCount, "%ld SECONDS", time(NULL)-timeStart);
 
     char diff[30];
 
