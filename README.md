@@ -1,5 +1,5 @@
-# Sudoku
-A simple soduku game.
+# Some games
+Some games that I personally enjoy and recreated.
 
 These games require the [TIGR library](https://github.com/erkkah/tigr), eg `gcc .\sudokuGUI.c .\tigr.c -lopengl32 -lgdi32 -o sudokuGUI`.
 
