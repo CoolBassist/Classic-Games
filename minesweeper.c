@@ -1,338 +1,352 @@
-#include <stdbool.h>
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include "gc.h"
+#include "minesweeper.h"
 #include "tigr.h"
 
 
-/*** Defines ***/
-#define max(x,y) (((x) >= (y)) ? (x) : (y))
-#define min(x,y) (((x) <= (y)) ? (x) : (y))
+void MS_menu(Tigr* screen){
+    Button* easy_diff_button = createButton("EASY", TIGR_DRKBLU, 130, 70);
+    Button* med_diff_button = createButton("MED", TIGR_DRKBLU, 130, 100);
+    Button* hard_diff_button = createButton("HARD", TIGR_DRKBLU, 130, 130);
 
+    Button* back_button = createButton("BACK", TIGR_LGTRED, 130, 200);
 
-/*** Structs ***/
-typedef struct {
-    bool isMine;
-    bool isFlagged;
-    bool isDiscovered;
-    int surroundingMines;
-}cell;
+    MS_INFO.board_w = 181;
+    MS_INFO.start_x = 77;
+    MS_INFO.start_y = 30;
+    MS_INFO.game_over = false;
+    MS_INFO.has_clicked = false;
+    MS_INFO.game_started = true;
 
-/*** Variables ***/
-Tigr* screen;
-cell* board;
-int width;
-int height;
-bool isOver = false;
-int minesLeft;
-char face[3];
-bool started = false;
+    while(true){
+        tigrClear(screen, TIGR_BCKGRO);
+        int title_screen_offset = (320 - tigrTextWidth(TITLE_FONT, "MINESWEEPER"))/2;
+        tigrPrint(screen, TITLE_FONT, title_screen_offset, 30, TIGR_DRKBLU, "MINESWEEPER");
+        drawButton(screen, easy_diff_button);
+        drawButton(screen, med_diff_button);
+        drawButton(screen, hard_diff_button);
+        drawButton(screen, back_button);
 
-/*** Helpers ***/
-cell* get(int x, int y){
-    return &board[y*9 + x];
+        resetMouse();
+        getMouseClick(screen);
+
+        if(isButtonPressed(easy_diff_button)){
+            MS_new_game(10, 9, 9);
+            play_minesweeper(screen);
+        }
+        if(isButtonPressed(med_diff_button)){
+            MS_new_game(40, 15, 14);
+            play_minesweeper(screen);
+        }
+        if(isButtonPressed(hard_diff_button)){
+            MS_new_game(99, 20, 19);
+            play_minesweeper(screen);
+        }
+
+        if(isButtonPressed(back_button)){
+            break;
+        }
+
+        tigrUpdate(screen);
+    }
 }
 
-void findMinesAround(int x, int y){
-    size_t minesAround = 0;
-    for(int i = (y == 0 ? 0 : -1); i < (y == 8 ? 1 : 2); i++){
-        for(int j = (x == 0 ? 0 : -1); j < (x == 8 ? 1 : 2); j++){
+void MS_new_game(int mines, int width, int height){
+    MS_INFO.square_side = 181/width;
+    MS_INFO.board_h = (181/width)*height;
+    MS_INFO.time_started = time(NULL);
+    MS_INFO.no_mines = mines;
+
+    MS_INFO.board = malloc(width*height*sizeof(MS_Cell));
+    MS_INFO.width = width;
+    MS_INFO.height = height;
+    MS_INFO.has_clicked = false;
+    MS_INFO.game_over = false;
+
+    MS_resetBoard();
+}
+
+void MS_drawField(Tigr* screen){
+    tigrLine(screen, MS_INFO.start_x-1, MS_INFO.start_y-1, MS_INFO.start_x+MS_INFO.board_w, MS_INFO.start_y-1, TIGR_BLK); // TOP
+    tigrLine(screen, MS_INFO.start_x-1, MS_INFO.start_y+MS_INFO.board_h, MS_INFO.start_x+MS_INFO.board_w, MS_INFO.start_y+MS_INFO.board_h, TIGR_BLK); // BOTTOM
+
+    tigrLine(screen, MS_INFO.start_x-1, MS_INFO.start_y, MS_INFO.start_x-1, MS_INFO.start_y + MS_INFO.board_h, TIGR_BLK); // LEFT
+    tigrLine(screen, MS_INFO.start_x+MS_INFO.board_w-1, MS_INFO.start_y, MS_INFO.start_x+MS_INFO.board_w-1, MS_INFO.start_y + MS_INFO.board_h, TIGR_BLK); // RIGHT
+
+
+    for(int y = 0; y < MS_INFO.height; y++){
+        for(int x = 0; x < MS_INFO.width; x++){
+            TPixel cur_colour = TIGR_LGTPUR;
+            MS_Cell* cur_cell = MS_getCell(x, y);
+
+            if(cur_cell->is_discovered && cur_cell->is_mine) cur_colour = TIGR_LGTRED;
+            else if(cur_cell->is_flagged) cur_colour = TIGR_DRKPUR;
+            else if(!cur_cell->is_discovered) cur_colour = TIGR_DRKBLU;
+
+            tigrFillRect(screen, MS_INFO.start_x+x*MS_INFO.square_side, MS_INFO.start_y+y*MS_INFO.square_side, MS_INFO.square_side, MS_INFO.square_side, cur_colour);
+
+            if(cur_cell->is_discovered && !cur_cell->is_mine){
+                if(cur_cell->mines_around != 0){
+                    char n[2];
+                    sprintf(n, "%d", cur_cell->mines_around);
+
+                    int x_offset = (MS_INFO.square_side - tigrTextWidth(SMALL_FONT, n))/2;
+                    int y_offset = (MS_INFO.square_side - tigrTextHeight(SMALL_FONT, n))/2;
+
+                    TPixel colours[9] = {
+                        TIGR_DRKBLU, // blue
+                        tigrRGB(0x20, 0xbf, 0x55), // green
+                        tigrRGB(0xef, 0x47, 0x6f), // red
+                        tigrRGB(0x26, 0x54, 0x7c), // dark blue
+                        tigrRGB(0x91, 0x17, 0x1f), // maroon
+                        TIGR_BLK, // black
+                        tigrRGB(0x84, 0x8c, 0x8e)  // grey
+                    };
+
+                    tigrPrint(screen, SMALL_FONT, MS_INFO.start_x+MS_INFO.square_side*x+x_offset, MS_INFO.start_y+MS_INFO.square_side*y+y_offset, colours[cur_cell->mines_around-1], n);
+                }
+            }
+        }
+    }
+}
+
+void play_minesweeper(Tigr* screen){
+    Button* exit_button = createButton("EXIT", TIGR_LGTRED, 10, 32);
+    while(true){
+        tigrClear(screen, TIGR_BCKGRO);
+
+        drawButton(screen, exit_button);
+
+        MS_drawField(screen);
+        MS_drawUI(screen);
+
+        resetMouse();
+        getMouseClick(screen);
+
+        if((!MS_has_won() && !MS_INFO.game_over) && MS_is_valid_mouse_click()){
+            int x, y;
+
+            MS_convert_click(&x, &y);
+
+            if(!MS_INFO.has_clicked){
+                MS_INFO.has_clicked = true;
+                MS_generateBoard(x, y);
+            }
+
+            if(MOUSE.button == 1){
+                MS_rgtclk(x, y);
+            }
+            if(MOUSE.button == 4){
+                MS_flag(x, y);
+            }
+        }
+
+        if(MS_has_won()){
+            int x_offset = (320-tigrTextWidth(tfont, "B )"))/2;
+            tigrPrint(screen, tfont, x_offset, 15, TIGR_DRKBLU, "B )");
+        }else if(MS_INFO.game_over){
+            int x_offset = (320-tigrTextWidth(tfont, ": ("))/2;
+            tigrPrint(screen, tfont, x_offset, 15, TIGR_DRKBLU, ": (");
+        }else{
+            int x_offset = (320-tigrTextWidth(tfont, ": )"))/2;
+            tigrPrint(screen, tfont, x_offset, 15, TIGR_DRKBLU, ": )");
+        }
+
+        if(isButtonPressed(exit_button)){
+            break;
+        }
+
+        tigrUpdate(screen);
+    }
+}
+
+void MS_rgtclk(int x, int y){
+    MS_Cell* cur_cell = MS_getCell(x, y);
+
+    if(!cur_cell->is_discovered){
+        MS_discover(x, y);
+        return;
+    }
+
+    if(MS_count_flags(x, y) == cur_cell->mines_around){
+        for(int i = (y == 0 ? 0 : -1); i < (y == MS_INFO.height-1 ? 1 : 2); i++){
+            for(int j = (x == 0 ? 0 : -1); j < (x == MS_INFO.width-1 ? 1 : 2); j++){
+                if(i == 0 && j == 0) continue;
+                MS_discover(x+j, y+i);
+            }
+        }
+    }
+}
+
+MS_Cell* MS_getCell(int x, int y){
+    return &(MS_INFO.board[y*MS_INFO.width + x]);
+}
+
+bool MS_is_valid_mouse_click(){
+    bool x = MOUSE.x >= MS_INFO.start_x && MOUSE.x <= MS_INFO.start_x + MS_INFO.board_w;
+    bool y = MOUSE.y >= MS_INFO.start_y && MOUSE.y <= MS_INFO.start_y + MS_INFO.board_h;
+
+    return x && y;
+}
+
+void MS_resetBoard(){
+    for(int y = 0; y < MS_INFO.height; y++){
+        for(int x = 0; x < MS_INFO.width; x++){
+            MS_Cell* cur_cell = MS_getCell(x, y);
+            cur_cell->is_discovered = false;
+            cur_cell->is_flagged = false;
+            cur_cell->is_mine = false;
+            cur_cell->mines_around = 0;
+        }
+    }
+}
+
+void MS_convert_click(int* x, int* y){
+    *x = ((MOUSE.x - MS_INFO.start_x)/MS_INFO.square_side);
+    *y = ((MOUSE.y - MS_INFO.start_y)/MS_INFO.square_side);
+
+   // printf("MOUSE: %d %d\n", *x, *y);
+}
+
+void MS_drawUI(Tigr* screen){
+    /* Mines left */
+    char textMinesLeft[3];
+    sprintf(textMinesLeft, "%d", MS_INFO.no_mines);
+    tigrPrint(screen, tfont, 290, 35, TIGR_DRKBLU, textMinesLeft);
+    tigrFillRect(screen, 265, 30, 20, 20, TIGR_LGTRED);
+
+    /* timer */
+    char timeCount[5];
+    static time_t cur_time;
+    if((!MS_has_won()) && (!MS_INFO.game_over)){
+        cur_time = time(NULL) - MS_INFO.time_started;
+    }
+     
+    sprintf(timeCount, "%d", cur_time);
+    tigrPrint(screen, tfont, 290, 76, TIGR_DRKBLU, timeCount);
+
+    tigrCircle(screen, 275, 80, 10, TIGR_BLK);
+    tigrFillCircle(screen, 275, 80, 10, TIGR_WHITE);
+
+    tigrLine(screen, 275, 80, 275+sin(cur_time*0.10472)*10, 80-cos(cur_time*0.10472)*10, TIGR_BLK);
+}
+
+void MS_discover(int x, int y){
+    MS_Cell* cur_cell = MS_getCell(x, y);
+    if(cur_cell->is_discovered) return;
+    if(cur_cell->is_flagged) return;
+
+    cur_cell->is_discovered = true;
+
+    if(cur_cell->is_mine){
+        MS_INFO.game_over = true;
+
+        for(int y2 = 0; y2 < MS_INFO.height; y2++){
+            for(int x2 = 0; x2 < MS_INFO.width; x2++){
+                MS_Cell* temp_cell = MS_getCell(x2, y2);
+                if(temp_cell->is_mine && !temp_cell->is_flagged) temp_cell->is_discovered = true;
+            }
+        }
+
+        return;
+    }
+
+    if(cur_cell->mines_around == 0){
+        for(int i = (y == 0 ? 0 : -1); i < (y == MS_INFO.height-1 ? 1 : 2); i++){
+            for(int j = (x == 0 ? 0 : -1); j < (x == MS_INFO.width-1 ? 1 : 2); j++){
+                if(i == 0 && j == 0) continue;
+                MS_discover(x+j, y+i);
+            }
+        }
+    }
+}
+
+int MS_count_flags(int x, int y){
+    int flags_counted = 0;
+    for(int i = (y == 0 ? 0 : -1); i < (y == MS_INFO.height-1 ? 1 : 2); i++){
+        for(int j = (x == 0 ? 0 : -1); j < (x == MS_INFO.width-1 ? 1 : 2); j++){
             if(i == 0 && j == 0) continue;
-            cell* curCell = get(x+j, y+i);
-            if((*curCell).isMine){
+            MS_Cell* cur_cell = MS_getCell(x+j, y+i);
+
+            if(cur_cell->is_flagged) flags_counted++;
+        }
+    }
+
+    return flags_counted;
+}
+
+void MS_flag(int x, int y){
+    MS_Cell* cur_cell = MS_getCell(x, y);
+    if(cur_cell->is_discovered) return;
+
+    if(cur_cell->is_flagged){
+        MS_INFO.no_mines++;
+    }else{
+        MS_INFO.no_mines--;
+    }
+
+    cur_cell->is_flagged = !cur_cell->is_flagged;
+}
+
+void MS_generateBoard(int x, int y){
+    int rand_x;
+    int rand_y;
+    int mines_left = MS_INFO.no_mines;
+
+    while(mines_left != 0){
+        rand_x = rand()%MS_INFO.width;
+        rand_y = rand()%MS_INFO.height;
+
+        MS_Cell* cur_cell = MS_getCell(rand_x, rand_y);
+
+        if(!cur_cell->is_mine && rand_x != x && rand_y != y){
+            cur_cell->is_mine = true;
+            mines_left--;
+        }
+    }
+
+    for(int y = 0; y < MS_INFO.height; y++){
+        for(int x = 0; x < MS_INFO.width; x++){
+            MS_Cell* current_cell = MS_getCell(x, y);
+            current_cell->mines_around = MS_find_mines_around(x, y);
+        }
+    }
+}
+
+bool MS_has_won(){
+    for(int y = 0; y < MS_INFO.height; y++){
+        for(int x = 0; x < MS_INFO.width; x++){
+            MS_Cell* cur_cell = MS_getCell(x, y);
+            if(!cur_cell->is_discovered && !cur_cell->is_mine) return false;
+        }
+    }
+
+    for(int y = 0; y < MS_INFO.height; y++){
+        for(int x = 0; x < MS_INFO.width; x++){
+            MS_Cell* cur_cell = MS_getCell(x, y);
+            if(cur_cell->is_mine){
+                cur_cell->is_flagged = true;
+            }
+        }
+    }
+
+    MS_INFO.no_mines = 0;
+    return true;
+}
+
+int MS_find_mines_around(int x, int y){
+    size_t minesAround = 0;
+    for(int i = (y == 0 ? 0 : -1); i < (y == MS_INFO.height-1 ? 1 : 2); i++){
+        for(int j = (x == 0 ? 0 : -1); j < (x == MS_INFO.width-1 ? 1 : 2); j++){
+            if(i == 0 && j == 0) continue;
+            MS_Cell* cur_cell = MS_getCell(x+j, y+i);
+            if(cur_cell->is_mine){
                 minesAround++;
             }
         }
     }
 
-    cell* cur_cell = get(x, y);
-
-    (*cur_cell).surroundingMines = minesAround;
-}
-
-
-/*** Field Generation ***/
-void clearBoard(){
-    for(int i = 0; i < 9; i++){
-        for(int j = 0; j < 9; j++){
-            cell* curCell = get(i, j);
-            (*curCell).isDiscovered = false;
-            (*curCell).isFlagged = false;
-            (*curCell).isMine = false;
-            (*curCell).surroundingMines = 0;
-        }
-    }
-}
-
-void generateField(int x, int y){
-    int start_x = 77;
-    int start_y = 30;
-    int delta = 20;
-
-    int newX = x-start_x;
-    int newY = y-start_y;
-
-    if(newY < 0 || newX < 0) return;
-
-    newX = (x-start_x)/delta;
-    newY = (y-start_y)/delta;
-
-    if(newY > 8 || newX > 8) return;
-
-
-    size_t minesLeft = 10;
-    int rand_x;
-    int rand_y;
-
-    clearBoard();
-
-    while(minesLeft != 0){
-        rand_x = rand()%9;
-        rand_y = rand()%9;
-
-        cell* currentCell = get(rand_x, rand_y);
-
-        if(!(*currentCell).isMine && rand_x != newX && rand_y != newY){
-            (*currentCell).isMine = true;
-            minesLeft--;
-        }
-    }
-
-    for(int i = 0; i < 9; i++){
-        for(int j = 0; j < 9; j++){
-            findMinesAround(j, i);
-        }
-    }
-
-    started = true;
-}
-
-/*** Drawing ***/
-void drawBoard(){
-    int delta = 60;
-    int start_x = 77;
-    int start_y = 30;
-    int cell_offset = 7;
-    int side_length = 181;
-
-    tigrLine(screen, start_x-2, start_y-2, start_x+side_length, start_y-2, tigrRGB(0x22, 0x18, 0x1C)); // top
-    tigrLine(screen, start_x-2, start_y+side_length, start_x+side_length, start_y+side_length, tigrRGB(0x22, 0x18, 0x1C)); // bottom
-    tigrLine(screen, start_x-2, start_y-2, start_x-2, start_y+side_length, tigrRGB(0x22, 0x18, 0x1C)); // left
-    tigrLine(screen, start_x+side_length, start_y-2, start_x+side_length, start_y+side_length+1, tigrRGB(0x22, 0x18, 0x1C)); // right
-    
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            cell* curCell = get(x, y);
-            
-            if((*curCell).isDiscovered){
-                if((*curCell).isMine){
-                    tigrFillRect(screen, start_x+20*x, start_y+20*y, 20, 20, tigrRGB(0xEF, 0x76, 0x74));
-                }else{
-                    tigrFillRect(screen, start_x+20*x, start_y+20*y, 20, 20, tigrRGB(0x65, 0x7E, 0xD4));
-                    if((*curCell).surroundingMines != 0){
-                        char n[2];
-                        sprintf(n, "%d", (*curCell).surroundingMines);
-                        tigrPrint(screen, tfont, start_x+20*x+7, start_y+20*y+7, tigrRGB(0xFF, 0xFF, 0xFF), n);
-                    }
-                }
-            }else if((*curCell).isFlagged){
-                tigrFillRect(screen, start_x+20*x, start_y+20*y, 20, 20, tigrRGB(0x36, 0x26, 0xA7));
-            }else{
-                tigrFillRect(screen, start_x+20*x, start_y+20*y, 20, 20, tigrRGB(0x07, 0xA0, 0xC3));
-            }
-        }
-    }
-}
-
-void drawButton(char* text, int x, int y){
-    tigrFillRect(screen, x, y, 60, 20, tigrRGB(0x07, 0xA0, 0xC3));
-    tigrFillRect(screen, x-2, y-2, 60, 20, tigrRGB(0x80, 0xEE, 0xFF));
-    tigrPrint(screen, tfont, x+2, y+3, tigrRGB(0xFF, 0xFF, 0xFF), text);
-}
-
-void drawUI(){
-    char textMinesLeft[3];
-    sprintf(textMinesLeft, "%d mine%s left", minesLeft, minesLeft == 1 ? "" : "s");
-    tigrPrint(screen, tfont, 70, 15, tigrRGB(0x07, 0xA0, 0xC3), textMinesLeft);
-    tigrPrint(screen, tfont, 200, 15, tigrRGB(0x07, 0xA0, 0xC3), face);
-    drawButton("RESET", 10, 32);
-    tigrPrint(screen, tfont, 120, 220, tigrRGB(0xEF, 0x76, 0x74), "MINESWEEPER");
-}
-
-
-
-/*** Game Functions ***/
-void discover(int x, int y){
-    cell* curCell = get(x, y);
-    if((*curCell).isDiscovered) return;
-
-    (*curCell).isDiscovered = true;
-
-    if((*curCell).isMine){
-        isOver = true;
-        memcpy(face, ": (", 3);  
-        return;
-    }
-
-    if((*curCell).surroundingMines == 0){
-        for(int i = (y == 0 ? 0 : -1); i < (y == 8 ? 1 : 2); i++){
-            for(int j = (x == 0 ? 0 : -1); j < (x == 8 ? 1 : 2); j++){
-                if(i == 0 && j == 0) continue;
-                discover(x+j, y+i);
-            }
-        }
-    }
-}
-
-size_t surroundingFlags(int x, int y){
-    size_t flagsCounted = 0;
-
-    for(int i = (y == 0 ? 0 : -1); i < (y == 8 ? 1 : 2); i++){
-        for(int j = (x == 0 ? 0 : -1); j < (x == 8 ? 1 : 2); j++){
-            if(i == 0 && j == 0) continue;
-            cell* curCell = get(x+j, y+i);
-            if((*curCell).isFlagged) flagsCounted++;
-        }
-    }
-
-    return flagsCounted;
-}
-
-void mouseClick(int x, int y, int button){
-    int start_x = 77;
-    int start_y = 30;
-    int delta = 20;
-
-    int newX = x-start_x;
-    int newY = y-start_y;
-
-    if(newY < 0 || newX < 0) return;
-
-    newX = (x-start_x)/delta;
-    newY = (y-start_y)/delta;
-
-    if(newY > 8 || newX > 8) return;
-
-    cell* curCell = get(newX, newY);
-
-    if(button == 1){
-        if((*curCell).isFlagged) return;
-        
-        if((*curCell).isDiscovered){
-            size_t flagsCounted = surroundingFlags(newX, newY);
-
-            if(flagsCounted == (*curCell).surroundingMines){
-                for(int i = (newY == 0 ? 0 : -1); i < (newY == 8 ? 1 : 2); i++){
-                    for(int j = (newX == 0 ? 0 : -1); j < (newX == 8 ? 1 : 2); j++){
-                        if(i == 0 && j == 0) continue;
-                        cell* tempCell = get(newX+j, newY+i);
-                        if(!(*tempCell).isFlagged) discover(newX+j, newY+i);
-                    }
-                }
-            }
-        }else{
-            discover(newX, newY);
-        }
-
-        
-    };
-
-    if(button == 4){
-        if((*curCell).isDiscovered) return;
-        (*curCell).isFlagged = !(*curCell).isFlagged;
-        if((*curCell).isFlagged){
-            minesLeft--;
-        }else{
-            minesLeft++;
-        }
-    }
-}
-
-bool isButtonPressed(int t_x, int t_y, int x, int y){
-    return t_x > x && t_x < x+60 && t_y > y && t_y < y+20;
-}
-
-void newGame(){
-    isOver = false;
-    started = false;
-    minesLeft = 10;
-    memcpy(face, ": )", 3);
-    clearBoard();
-}
-
-bool hasWon(){
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            cell* curCell = get(x, y);
-            if(!(*curCell).isDiscovered && !(*curCell).isMine) return false;
-        }
-    }
-
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            cell* curCell = get(x, y);
-            if((*curCell).isMine){
-                (*curCell).isFlagged = true;
-            }
-        }
-    }
-
-    minesLeft = 0;
-    return true;
-}
-
-
-/*** Main ***/
-
-int main(void){
-    srand((unsigned int)time(NULL));
-    screen = tigrWindow(320, 240, "Minesweeper", 0);
-
-    board = malloc(9*9*sizeof(cell));
-    
-    int butt_prev;
-    int butt = 0;
-    int x = 0;
-    int y = 0;
-    
-    newGame();
-
-    while(!tigrClosed(screen)){
-        tigrClear(screen, tigrRGB(0xDF, 0xF8, 0xEB));
-        drawBoard();
-        drawUI();
-
-        
-
-        butt_prev = butt;
-        tigrMouse(screen, &x, &y, &butt);
-
-        if(!isOver){
-            if(butt != 0 && butt != butt_prev){
-                if(!started){
-                    generateField(x, y);
-                }
-                mouseClick(x, y, butt);
-            }
-        }
-
-        if(butt != 0 && butt != butt_prev){
-            if(isButtonPressed(x, y, 10, 32)){
-                newGame();
-            }
-        }
-
-        if(hasWon() && started){
-            isOver = true;
-            memcpy(face, "B )", 3);
-        }
-
-        tigrUpdate(screen);
-    }
-
-    tigrFree(screen);
-    free(board);
-
-    return 0;
+    return minesAround;
 }

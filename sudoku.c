@@ -1,115 +1,93 @@
-#include <stdio.h>
-#include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
 #include <string.h>
-#include <errno.h>
 #include <time.h>
+#include "sudoku.h"
+#include "gc.h"
 #include "tigr.h"
 
-/*** Enums ***/
-enum difficulty{
-    EASY = 21,
-    MEDIUM = 32,
-    HARD = 43,
-    VERYHARD = 64
-};
 
-/*** Prototypes ***/
-void drawBoard();
+void SU_menu(Tigr* screen){
+    Button* easy_diff_button = createButton("EASY", TIGR_DRKBLU, 130, 70);
+    Button* med_diff_button = createButton("MED", TIGR_DRKBLU, 130, 100);
+    Button* hard_diff_button = createButton("HARD", TIGR_DRKBLU, 130, 130);
+    Button* very_hard_diff_button = createButton("V.HARD", TIGR_DRKBLU, 130, 160);
 
-/*** Structs ***/
-typedef struct {
-    int value;
-    bool isEditable;
-} cell;
+    Button* back_button = createButton("BACK", TIGR_LGTRED, 130, 200);
 
-/**** Variables ****/
-cell board[9][9];
-int alreadyUsed[9][9][9];
-char message[100];
-Tigr *screen;
-int cur_x;
-int cur_y;
-int delta = 60;
-int start_x = 77;
-int start_y = 30;
-int cell_offset = 7;
-int side_length = 181;
-int timeStart;
-int difficulty;
-int hlDigit;
-bool start = false;
+    while(true){
+        tigrClear(screen, TIGR_BCKGRO);
+        int title_screen_offset = (320 - tigrTextWidth(TITLE_FONT, "SUDOKU"))/2;
+        tigrPrint(screen, TITLE_FONT, title_screen_offset, 30, TIGR_DRKBLU, "SUDOKU");
+        drawButton(screen, easy_diff_button);
+        drawButton(screen, med_diff_button);
+        drawButton(screen, hard_diff_button);
+        drawButton(screen, very_hard_diff_button);
 
-/**** Verification ****/
-bool verifyRow(int y, int d){
-    int count = 0;
+        drawButton(screen, back_button);
 
-    for(int i = 0; i < 9; i++){
-        if(board[y][i].value == d) count++;
+        resetMouse();
+        getMouseClick(screen);
+
+        if(isButtonPressed(easy_diff_button)){
+            SU_new_game(SU_EASY);
+            play_sudoku(screen);
+        }
+        if(isButtonPressed(med_diff_button)){
+            SU_new_game(SU_MEDIUM);
+            play_sudoku(screen);
+        }
+        if(isButtonPressed(hard_diff_button)){
+            SU_new_game(SU_HARD);
+            play_sudoku(screen);
+        }
+        if(isButtonPressed(very_hard_diff_button)){
+            SU_new_game(S0_VERYHARD);
+            play_sudoku(screen);
+        }
+
+        if(isButtonPressed(back_button)){
+            break;
+        }
+
+        tigrUpdate(screen);
     }
-
-    return count < 2;
 }
 
-bool verifyColumn(int x, int d){
-    int count = 0;
-
+void SU_new_game(int difficulty){
     for(int i = 0; i < 9; i++){
-        if(board[i][x].value == d) count++;
-    }
-
-    return count < 2;
-}
-
-bool verifySquare(int s, int d){
-    int count = 0;
-
-    int x = s % 3;
-    int y = s / 3;
-
-    for(int i = 0; i < 3; i++){
-        for(int j = 0; j < 3; j++){
-            if(board[i+3*y][j+3*x].value == d) count++;
+        for(int j = 0; j < 9; j++){
+            SU_INFO.board[j][i].value = 0;
+            SU_INFO.board[j][i].is_editable = false;
         }
     }
 
-    return count < 2;
+    memset(SU_INFO.already_used, 0, 9*9*9*sizeof(int));
+
+    SU_generate_board();
+    SU_remove_squares(difficulty);
+
+    SU_INFO.game_started = true;
+    SU_INFO.board_w = 181;
+    SU_INFO.start_x = 77;
+    SU_INFO.start_y = 30;
+    SU_INFO.delta = 60;
+    SU_INFO.hl_digit = 0;
+    SU_INFO.cur_x = -1;
+    SU_INFO.cur_y = -1;
+    SU_INFO.game_over = false;
+    SU_INFO.time_started = time(NULL);
 }
 
-bool verifyFullBoard(){
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            if(board[y][x].value == 0) continue;
-
-            if(!verifyColumn(x, board[y][x].value)) return false;
-            if(!verifyRow(y, board[y][x].value)) return false;
-            if(!verifySquare((x/3) + (y/3)*3, board[y][x].value)) return false;
-        } 
-    }
-
-    return true;
-}
-
-
-/**** Generation of puzzle ****/
-void generateFullBoard(){
+void SU_generate_board(){
     int curDigit;
 
     int y = 0;
     int x = 0;
 
-    for(int i = 0; i < 9; i++){
-        for(int j = 0; j < 9; j++){
-            board[j][i].value = 0;
-        }
-    }
-
-    memset(alreadyUsed, 0, 9*9*9*sizeof(int));
-
-
     while(y != 9){
         while(x != 9){
-
             if(y < 0){
                 printf("Error Y is less than 0!\n");
                 exit(0);
@@ -120,12 +98,10 @@ void generateFullBoard(){
                 exit(0);
             }
 
-            board[y][x].isEditable = false;
-
             int tries[9];
 
             for(int i = 0; i < 9; i++){
-                tries[i] = alreadyUsed[y][x][i];
+                tries[i] = SU_INFO.already_used[y][x][i];
             }
 
             bool triedAll;
@@ -139,25 +115,25 @@ void generateFullBoard(){
                 }
 
                 if(triedAll){
-                    board[y][x].value = 0;
-                    memset(&alreadyUsed[y][x], 0, 9*sizeof(int));
+                    SU_INFO.board[y][x].value = 0;
+                    memset(&SU_INFO.already_used[y][x], 0, 9*sizeof(int));
                     break;
                 }
 
                 curDigit = (rand() % 9) + 1;
-                while((tries[curDigit-1] != 0) || (alreadyUsed[y][x][curDigit-1] != 0)){
+                while((tries[curDigit-1] != 0) || (SU_INFO.already_used[y][x][curDigit-1] != 0)){
                     curDigit = (rand() % 9) + 1;
                 }
 
                 tries[curDigit-1] = 1;                
-                board[y][x].value = curDigit;
+                SU_INFO.board[y][x].value = curDigit;
 
-            }while(!verifyRow(y, curDigit) || !verifyColumn(x, curDigit) || !verifySquare((x/3) + (y/3)*3, curDigit));
+            }while(!SU_verify_row(y, curDigit) || !SU_verify_column(x, curDigit) || !SU_verify_square((x/3) + (y/3)*3, curDigit));
 
             if(triedAll){
                 --x;
             }else{
-                alreadyUsed[y][x][curDigit-1] = 1;
+                SU_INFO.already_used[y][x][curDigit-1] = 1;
                 ++x;
             }
         }
@@ -166,287 +142,240 @@ void generateFullBoard(){
     }
 }
 
-void removeSquares(int toRemove){
+void SU_remove_squares(int to_remove){
     int randX;
     int randY;
 
-    while(toRemove != 0){
+    while(to_remove != 0){
         do{
             randX = (rand()%9);
             randY = (rand()%9);
-        }while(board[randY][randX].value == 0);
+        }while(SU_INFO.board[randY][randX].value == 0);
 
-        board[randY][randX].value = 0;
-        board[randY][randX].isEditable = true;
-        --toRemove;
+        SU_INFO.board[randY][randX].value = 0;
+        SU_INFO.board[randY][randX].is_editable = true;
+        --to_remove;
     }
 }
 
-
-/**** Input ****/
-void interpretKey(int key){
-    hlDigit = 0;
-
-    if(key >= '0' && key <= '9'){
-        int cur_num = key - 48;
-        if(board[cur_y][cur_x].isEditable){
-            if(board[cur_y][cur_x].value == cur_num){
-                board[cur_y][cur_x].value = 0;
-                hlDigit = 0;
-            }else{
-                board[cur_y][cur_x].value = cur_num;
-                hlDigit = cur_num;
-            }
-        }else{
-            hlDigit = cur_num;
-        }
-    }
-
-    if(key == 8){ // backspace
-        board[cur_y][cur_x].value = 0;
-        hlDigit = 0;
-    }
-}
-
-
-/*** Drawing ***/
-void drawBoard(){
-    TPixel line_colour = tigrRGB(0x22, 0x18, 0x1C);
-
+void SU_draw_board(Tigr* screen){
     for(int i = 0; i < 4; i++){
-        tigrLine(screen, start_x, start_y + i*delta, side_length+start_x, start_y + i*delta, line_colour);
+        tigrLine(screen, SU_INFO.start_x, SU_INFO.start_y + i*SU_INFO.delta, SU_INFO.start_x+SU_INFO.board_w, SU_INFO.start_y + i*SU_INFO.delta, TIGR_BLK);
     }
 
     for(int i = 0; i < 4; i++){
-        tigrLine(screen, start_x+i*delta, start_y , start_x+i*delta, side_length+start_y, line_colour);
+        tigrLine(screen, SU_INFO.start_x+i*SU_INFO.delta, SU_INFO.start_y , SU_INFO.start_x+i*SU_INFO.delta, SU_INFO.board_w+SU_INFO.start_y, TIGR_BLK);
     }
 
     for(int y = 0; y < 9; y++){
         for(int x = 0; x < 9; x++){
-            if(!board[y][x].isEditable){
-                if(board[y][x].value != hlDigit){
-                    tigrFillCircle(screen, x*20+start_x+10, y*20+10 + start_y, 10, tigrRGB(0x9A, 0xC2, 0xC5));
-                }else if(hlDigit != 0){
-                    tigrFillCircle(screen, x*20+start_x+10, y*20+10 + start_y, 10, tigrRGB(0x36, 0x26, 0xA7));
+
+            if(SU_INFO.cur_x == x && SU_INFO.cur_y == y){
+                tigrFillCircle(screen, x*20+SU_INFO.start_x+10, y*20+10 + SU_INFO.start_y, 10, TIGR_HNYDEW);
+            }
+
+            if(!SU_INFO.board[y][x].is_editable){
+                if(SU_INFO.board[y][x].value != SU_INFO.hl_digit){
+                    tigrFillCircle(screen, x*20+SU_INFO.start_x+10, y*20+10 + SU_INFO.start_y, 10, tigrRGB(0x9A, 0xC2, 0xC5));
+                }else if(SU_INFO.hl_digit != 0){
+                    tigrFillCircle(screen, x*20+SU_INFO.start_x+10, y*20+10 + SU_INFO.start_y, 10, tigrRGB(0x36, 0x26, 0xA7));
                 }
-            }else if(board[y][x].value == hlDigit && hlDigit != 0){
-                tigrFillCircle(screen, x*20+start_x+10, y*20+10 + start_y, 10, tigrRGB(0x65, 0x7E, 0xD4));
+            }else if(SU_INFO.board[y][x].value == SU_INFO.hl_digit && SU_INFO.hl_digit != 0){
+                tigrFillCircle(screen, x*20+SU_INFO.start_x+10, y*20+10 + SU_INFO.start_y, 10, tigrRGB(0x65, 0x7E, 0xD4));
             }   
         }
     }
 }
 
-void drawNumbers(){
+void SU_draw_numbers(Tigr* screen){
     for(int y = 0; y < 9; y++){
         for(int x = 0; x < 9; x++){
 
-            if(board[y][x].value == 0) continue;
+            if(SU_INFO.board[y][x].value == 0) continue;
 
             char cell_number[2];
-            sprintf(cell_number, "%d", board[y][x].value);
+            sprintf(cell_number, "%d", SU_INFO.board[y][x].value);
 
             TPixel colour = tigrRGB(0x80, 0xEE, 0xFF);
 
-            if(cur_x == x && cur_y == y){
+            if(SU_INFO.cur_x == x && SU_INFO.cur_y == y){
                 colour = tigrRGB(0xFF, 0xFF, 0xFF);
             }        
 
-            if(!verifyRow(y, board[y][x].value) || !verifyColumn(x, board[y][x].value) || !verifySquare((x/3) + (y/3)*3, board[y][x].value)){
-                if(board[y][x].isEditable){
+            if(!SU_verify_row(y, SU_INFO.board[y][x].value) || !SU_verify_column(x, SU_INFO.board[y][x].value) || !SU_verify_square((x/3) + (y/3)*3, SU_INFO.board[y][x].value)){
+                if(SU_INFO.board[y][x].is_editable){
                     colour = tigrRGB(0xEF, 0x76, 0x74);
                 }else{
                     colour = tigrRGB(0xC4, 0x23, 0x48);
                 }
             }
 
-            tigrPrint(screen, tfont, start_x + 20*x + cell_offset, start_y + 20*y + cell_offset, colour, cell_number);          
+            tigrPrint(screen, tfont, SU_INFO.start_x + 20*x + 7, SU_INFO.start_y + 20*y + 7, colour, cell_number);          
         }
     }
 }
 
-void drawCursor(){
-    tigrFillCircle(screen, cur_x*20+start_x+10, cur_y*20+10 + start_y, 10, tigrRGB(0x07, 0xA0, 0xC3));
-}
+bool SU_verify_row(int y, int d){
+    int count = 0;
 
-void drawButton(char* text, int x, int y){
-    tigrFillRect(screen, x, y, 60, 20, tigrRGB(0x07, 0xA0, 0xC3));
-    tigrFillRect(screen, x-2, y-2, 60, 20, tigrRGB(0x80, 0xEE, 0xFF));
-    tigrPrint(screen, tfont, x+2, y+3, tigrRGB(0xFF, 0xFF, 0xFF), text);
-}
-
-void drawUI(){
-    char timeCount[30];
-    char diff[8];
-
-    sprintf(timeCount, "%ld SECONDS", time(NULL)-timeStart);
-
-    if(difficulty == EASY){
-        memcpy(diff, "EASY", 5);
-    }else if(difficulty == MEDIUM){
-        memcpy(diff, "MEDIUM", 7);
-    }else if(difficulty == HARD){
-        memcpy(diff, "HARD", 5);
-    }else if(difficulty == VERYHARD){
-        memcpy(diff, "V. HARD", 8);
-    }
-
-    int count[9] = {0};
-
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            count[board[y][x].value - 1]++;
-        }
-    }
-
-    char t_s[2];
     for(int i = 0; i < 9; i++){
-        sprintf(t_s, "%d", i+1);
-
-        tigrPrint(screen, tfont, 280, 29+22*i, tigrRGBA(0x07, 0xa0, 0xc3, 255-28*count[i]), t_s);
+        if(SU_INFO.board[y][i].value == d) count++;
     }
 
-
-    tigrPrint(screen, tfont, 80, 10, tigrRGB(0xEF, 0x76, 0x74), diff);
-    tigrPrint(screen, tfont, 140, 10, tigrRGB(0xEF, 0x76, 0x74), timeCount);
-
-    drawButton("RESET", 10, 32);
-    drawButton("BACK", 10, 62);
+    return count < 2;
 }
 
-void drawMenu(){
-    tigrPrint(screen, tfont, 137, 20, tigrRGB(0xEF, 0x76, 0x74), "SUDOKU");
-    drawButton("EASY", 137, 40);
-    drawButton("MEDIUM", 137, 70);
-    drawButton("HARD", 137, 100);
-    drawButton("V. HARD", 137, 130);
+bool SU_verify_column(int x, int d){
+    int count = 0;
 
-    drawButton("EXIT", 137, 200);
+    for(int i = 0; i < 9; i++){
+        if(SU_INFO.board[i][x].value == d) count++;
+    }
+
+    return count < 2;
 }
 
+bool SU_verify_square(int s, int d){
+    int count = 0;
 
-/*** Game functions ***/
-bool hasWon(){
-    for(int y = 0; y < 9; y++){
-        for(int x = 0; x < 9; x++){
-            if(board[y][x].value == 0){
-                return false;
-            }
+    int x = s % 3;
+    int y = s / 3;
+
+    for(int i = 0; i < 3; i++){
+        for(int j = 0; j < 3; j++){
+            if(SU_INFO.board[i+3*y][j+3*x].value == d) count++;
         }
     }
 
-    return verifyFullBoard();
+    return count < 2;
 }
 
-bool isButtonPressed(int t_x, int t_y, int x, int y){
-    return t_x > x && t_x < x+60 && t_y > y && t_y < y+20;
+bool SU_verify_full_board(){
+    for(int y = 0; y < 9; y++){
+        for(int x = 0; x < 9; x++){
+            if(SU_INFO.board[y][x].value == 0) continue;
+
+            if(!SU_verify_column(x, SU_INFO.board[y][x].value)) return false;
+            if(!SU_verify_row(y, SU_INFO.board[y][x].value)) return false;
+            if(!SU_verify_square((x/3) + (y/3)*3, SU_INFO.board[y][x].value)) return false;
+        } 
+    }
+
+    return true;
 }
 
-/*** Main ***/
+void play_sudoku(Tigr* screen){
+    Button* exit_button = createButton("EXIT", TIGR_LGTRED, 10, 32);
+    while(true){
+        tigrClear(screen, TIGR_BCKGRO);
 
-int main(){
-    srand((unsigned int)time(NULL));
-    screen = tigrWindow(320, 240, "Sudoku", 0);
-    cur_x = 0;
-    cur_y = 0;
-    int x = 0;
-    int y = 0;
+        drawButton(screen, exit_button);
 
-    int prev_time = 0;
+        SU_draw_board(screen);
+        SU_draw_numbers(screen);
+        SU_drawUI(screen);
 
-    int butt_prev;
-    int butt = 0;
-    
-    while(!tigrClosed(screen)){
-        tigrClear(screen, tigrRGB(0xDF, 0xF8, 0xEB));
+        resetMouse();
+        getMouseClick(screen);
 
-        butt_prev = butt;
-        tigrMouse(screen, &x, &y, &butt);
+        int key_pressed = tigrReadChar(screen);
+        if(key_pressed != 0) SU_interpret_key(key_pressed);
 
-        if(start){
-            drawUI();
-            drawBoard();
-            drawCursor();
-            drawNumbers();
+        if((!SU_has_won() && !SU_INFO.game_over) && SU_is_valid_mouse_click()){
+            int x, y;
 
-            
+            SU_convert_click(&x, &y);
 
-            if(butt != 0 && butt != butt_prev){
-                if(isButtonPressed(x, y, 10, 32)){
-                    generateFullBoard();
-                    removeSquares(difficulty);
-                    timeStart = time(NULL);
-                }else if(isButtonPressed(x, y, 10, 62)){
-                    start = false;
+            if(MOUSE.button == 1){
+
+                if(SU_INFO.cur_x == x && SU_INFO.cur_y == y){
+                    SU_INFO.cur_x = -1;
+                    SU_INFO.cur_y = -1;
+                }else{
+                    SU_INFO.cur_x = x;
+                    SU_INFO.cur_y = y;
+                }
+
+                if(SU_INFO.board[y][x].value != 0){
+                    SU_INFO.hl_digit = SU_INFO.board[y][x].value;
+                }else if(SU_INFO.hl_digit == SU_INFO.board[y][x].value){
+                    SU_INFO.hl_digit = 0;
                 }
             }
+        }
 
+        if(SU_has_won()){
+            SU_INFO.cur_x = -1;
+            SU_INFO.cur_y = -1;
+            SU_INFO.hl_digit = 0;
+        }
 
-            if(tigrKeyDown(screen, TK_DOWN)){
-                if(cur_y < 8){
-                    cur_y += 1;
-                }
-            }
-            if(tigrKeyDown(screen, TK_UP)){
-                if(cur_y > 0){
-                    cur_y -= 1;
-                }
-            }
-            if(tigrKeyDown(screen, TK_RIGHT)){
-                if(cur_x < 8){
-                    cur_x += 1;
-                }
-            }
-            if(tigrKeyDown(screen, TK_LEFT)){
-                if(cur_x > 0){
-                    cur_x -= 1;
-                }
-            }
-
-            int key_pressed = tigrReadChar(screen);
-
-            if(key_pressed != 0) interpretKey(key_pressed);
-
-            if(hasWon()){
-                start = 0;
-                prev_time = time(NULL) - timeStart;
-            }
-        }else{
-            drawMenu();
-
-            if(butt != 0 && butt != butt_prev){
-                if(isButtonPressed(x, y, 137, 40)){
-                    start = true;
-                    difficulty = EASY;
-                }else if(isButtonPressed(x, y, 137, 70)){
-                    start = true;
-                    difficulty = MEDIUM;
-                }else if(isButtonPressed(x, y, 137, 100)){
-                    start = true;
-                    difficulty = HARD;
-                }else if(isButtonPressed(x, y, 137, 130)){
-                    start = true;
-                    difficulty = VERYHARD;
-                }else if(isButtonPressed(x, y, 137, 200)){
-                    break;
-                }
-            }
-
-            if(prev_time != 0){
-                char time_str[30];
-                sprintf(time_str, "PREV TIME: %d", prev_time);
-                tigrPrint(screen, tfont, 30, 20, tigrRGB(0xFF, 0xFF, 0xFF), time_str);
-            }
-
-            if(start){
-                timeStart = time(NULL);
-                generateFullBoard();
-                removeSquares(difficulty);
-            }
+        if(isButtonPressed(exit_button)){
+            break;
         }
 
         tigrUpdate(screen);
     }
+}
 
-    tigrFree(screen);
-    return 0;
+bool SU_has_won(){
+    for(int y = 0; y < 9; y++){
+        for(int x = 0; x < 9; x++){
+            if(SU_INFO.board[y][x].value == 0) return false;
+        }
+    }
+
+    return SU_verify_full_board();
+}
+
+void SU_convert_click(int* x, int* y){
+    *x = (MOUSE.x - SU_INFO.start_x)/20;
+    *y = (MOUSE.y - SU_INFO.start_y)/20;
+}
+
+bool SU_is_valid_mouse_click(){
+    bool x = MOUSE.x >= SU_INFO.start_x && MOUSE.x <= SU_INFO.start_x + SU_INFO.board_w;
+    bool y = MOUSE.y >= SU_INFO.start_y && MOUSE.y <= SU_INFO.start_y + SU_INFO.board_w;
+
+    return x && y;
+}
+
+void SU_drawUI(Tigr* screen){
+    char timeCount[5];
+    static time_t cur_time;
+    if((!SU_has_won()) && (!SU_INFO.game_over)){
+        cur_time = time(NULL) - SU_INFO.time_started;
+    }
+     
+    sprintf(timeCount, "%d", cur_time);
+    tigrPrint(screen, tfont, 290, 76, TIGR_DRKBLU, timeCount);
+
+    tigrCircle(screen, 275, 80, 10, TIGR_BLK);
+    tigrFillCircle(screen, 275, 80, 10, TIGR_WHITE);
+
+    tigrLine(screen, 275, 80, 275+sin(cur_time*0.10472)*10, 80-cos(cur_time*0.10472)*10, TIGR_BLK);
+}
+
+void SU_interpret_key(int key){
+    SU_INFO.hl_digit = 0;
+
+    if(key >= '0' && key <= '9'){
+        int cur_num = key - 48;
+        if(SU_INFO.board[SU_INFO.cur_y][SU_INFO.cur_x].is_editable){
+            if(SU_INFO.board[SU_INFO.cur_y][SU_INFO.cur_x].value == cur_num){
+                SU_INFO.board[SU_INFO.cur_y][SU_INFO.cur_x].value = 0;
+                SU_INFO.hl_digit = 0;
+            }else{
+                SU_INFO.board[SU_INFO.cur_y][SU_INFO.cur_x].value = cur_num;
+                SU_INFO.hl_digit = cur_num;
+            }
+        }else{
+            SU_INFO.hl_digit = cur_num;
+        }
+    }
+
+    if(key == 8){ // backspace
+        SU_INFO.board[SU_INFO.cur_y][SU_INFO.cur_x].value = 0;
+        SU_INFO.hl_digit = 0;
+    }
 }
